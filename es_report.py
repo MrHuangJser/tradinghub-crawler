@@ -134,6 +134,63 @@ def render_md(p: dict) -> str:
              f"现价附近 {near_n}/{total_n} 档为负 Gamma |")
     L.append("")
 
+    # Gamma 结构分析
+    gd = p.get("gamma_detail") or {}
+    if gd:
+        L.append("## Gamma 结构分析\n")
+        # Top positive/negative table
+        L.append("| 方向 | 行权价 | GEX | 距现价 | 含义 |")
+        L.append("|---|---:|---:|---:|")
+        for r in (gd.get("top_positive") or [])[:5]:
+            dist = (r["strike"] - spot) if spot else 0
+            dist_pct = (dist / spot * 100) if spot else 0
+            L.append(f"| 🟢 正 Gamma | {r['strike']:,.2f} | {r['gex']:+,.1f} | "
+                     f"{dist:+,.1f} ({dist_pct:+.2f}%) | dealer 做多 Gamma → 跌至此位买入、涨至此位卖出（缓冲）|")
+        for r in (gd.get("top_negative") or [])[:5]:
+            dist = (r["strike"] - spot) if spot else 0
+            dist_pct = (dist / spot * 100) if spot else 0
+            L.append(f"| 🔴 负 Gamma | {r['strike']:,.2f} | {r['gex']:+,.1f} | "
+                     f"{dist:+,.1f} ({dist_pct:+.2f}%) | dealer 做空 Gamma → 跌至此位卖出、涨至此位买入（加速）|")
+
+        # Wall summary
+        cw = gd.get("call_walls") or {}
+        pw = gd.get("put_walls") or {}
+        L.append(f"\n**Gamma Wall（离散 OI 墙）：**\n")
+        L.append(f"- Call Wall: 0DTE **{_num(cw.get('0DTE'))}** / 1DTE+ **{_num(cw.get('1DTE+'))}**")
+        L.append(f"- Put Wall: 0DTE **{_num(pw.get('0DTE'))}** / 1DTE+ **{_num(pw.get('1DTE+'))}**")
+        mlg = gd.get("major_long_gamma")
+        msg = gd.get("major_short_gamma")
+        if mlg or msg:
+            L.append(f"- 主要多头 Gamma 位: {_num(mlg)}  /  主要空头 Gamma 位: {_num(msg)}")
+
+        # Interpretation
+        pos_n = gd.get("pos_gamma_near_spot", 0)
+        neg_n = gd.get("neg_gamma_near_spot", 0)
+        total_entries = gd.get("total_gamma_ladder_entries", 0)
+        net_gex = p.get("net_gex_vol")
+
+        L.append(f"\n**对冲行为解读：**\n")
+        L.append(f"- Gamma 档共 {total_entries} 档，现价 ±1EM 内正 Gamma {pos_n} 档 / 负 Gamma {neg_n} 档")
+        if net_gex is not None:
+            pos_peaks = ", ".join(f"{r['strike']:,.2f}" for r in (gd.get("top_positive") or [])[:3])
+            neg_peaks = ", ".join(f"{r['strike']:,.2f}" for r in (gd.get("top_negative") or [])[:3])
+            if net_gex > 0:
+                L.append(f"- 净 GEX **正** ({net_gex:+,.1f})：dealer 整体做多 Gamma → 跌了会接、涨了会压 → **均值回归**")
+                L.append(f"- 正 Gamma 峰值在 {pos_peaks}，"
+                         f"是 dealer 对冲买盘最强的位置")
+            else:
+                L.append(f"- 净 GEX **负** ({net_gex:+,.1f})：dealer 整体做空 Gamma → 跌了加速卖、涨了追买 → **波动扩张**")
+                L.append(f"- 负 Gamma 峰值在 {neg_peaks}，"
+                         f"突破这些位置会触发 dealer 同向对冲 → 加速行情")
+            if pos_n > 0 and neg_n > 0:
+                dominant = "正 Gamma 主导 → 价格倾向稳定在 Gamma 密集区" if pos_n >= neg_n else "负 Gamma 主导 → 价格在负 Gamma 区易加速"
+                L.append(f"- 正/负 Gamma 档比 {pos_n}:{neg_n}，{dominant}")
+
+        L.append("")
+        L.append("> Gamma 是 dealer 对冲行为的**地图**——正 Gamma 区 dealer 逆势操作（缓冲价格），"
+                 "负 Gamma 区 dealer 顺势操作（加速价格）。但 dealer 不是唯一的边际定价者。")
+        L.append("")
+
     # 条件式计划
     L.append("## 条件式计划\n")
     for s in (p.get("narrative") or []):

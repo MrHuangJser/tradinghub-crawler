@@ -68,6 +68,27 @@ def build_plan(snap_es: dict, snap_spx: dict | None,
     if on_mid is None:
         limitations.append("未提供 ONH/ONL：转换位未纳入隔夜中轴(文档实证的重要候选)")
 
+    # Gamma 结构详情（用于报告渲染）
+    from .options_layer import top_gamma_strikes as _top_g
+    pos_top = _top_g(opt, n=5, side="positive")
+    neg_top = _top_g(opt, n=5, side="negative")
+    pos_near = sorted([s for s in (opt.get("pos_gamma_strikes") or [])
+                       if price - (em or 25) <= s <= price + (em or 25)])
+    neg_near = levels.get("negative_gamma_strikes_near_spot") or []
+    gamma_detail = {
+        "top_positive": [{"strike": r["strike"], "gex": round(r.get("current_value") or 0, 1)}
+                         for r in pos_top],
+        "top_negative": [{"strike": r["strike"], "gex": round(r.get("current_value") or 0, 1)}
+                         for r in neg_top],
+        "call_walls": opt.get("call_walls", {}),
+        "put_walls": opt.get("put_walls", {}),
+        "major_long_gamma": opt.get("major_long_gamma"),
+        "major_short_gamma": opt.get("major_short_gamma"),
+        "pos_gamma_near_spot": len(pos_near),
+        "neg_gamma_near_spot": len(neg_near),
+        "total_gamma_ladder_entries": len(opt.get("gamma_ladder") or []),
+    }
+
     plan = {
         "ticker": snap_es.get("ticker", "ES_SPX"),
         "spot": price,
@@ -90,6 +111,7 @@ def build_plan(snap_es: dict, snap_spx: dict | None,
         "negative_gamma_band": levels["negative_gamma_band"],
         "negative_gamma_strikes_near_spot": levels["negative_gamma_strikes_near_spot"],
         "negative_gamma_total": levels["negative_gamma_total"],
+        "gamma_detail": gamma_detail,
         "limitations": limitations,
         "source_flow": opt["flow"],
     }
