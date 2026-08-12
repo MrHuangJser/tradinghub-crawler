@@ -44,43 +44,76 @@ python3 spx_options.py --email your_email@example.com --password 'your_password'
 输入 TradingHub 的 `ES_SPX` 期权结构（已含 basis 的 ES 价格空间）+ CBOE 免费数据（VIX 家族 + EM），
 输出 regime/bias/pivot/三级目标/核心防守/Squeeze/条件式文案。
 
+### 一键报告（推荐）
+
 ```bash
-# 全自动：登录 TradingHub + 抓 CBOE，生成 ES 盘前计划
-python3 es_plan.py --output plan.json
+# 全自动：登录 TradingHub + 抓 CBOE → 直接输出 report.md
+python3 es_run.py
+
+# 指定输出路径
+python3 es_run.py -o my_report.md
 
 # 纯结构模式（不联网 CBOE，零外部依赖）
-python3 es_plan.py --no-cboe
+python3 es_run.py --no-cboe
 
 # 注入技术位/精确 EM（解锁 pivot 融合 + 目标可达性）
-python3 es_plan.py --em 45 --vwap 7748 --onh 7760 --onl 7735 --pdh 7770 --pdl 7720 --poc 7750
+python3 es_run.py --em 45 --vwap 7748 --onh 7760 --onl 7735 --pdh 7770 --pdl 7720 --poc 7750
 
-# 时效门禁：盘中误用昨结数据会告警；--strict-freshness 直接拒绝输出（退出码 5）
-python3 es_plan.py --strict-freshness
+# 同时保存中间 plan JSON（方便调试/重校准）
+python3 es_run.py --save-plan plan.json
+
+# 管道输出（适合脚本串联）
+python3 es_run.py --stdout | grep -A5 "摘要"
+```
+
+### 分步运行（高级用法：需要 plan JSON 做重校准）
+
+```bash
+# Step 1 — 生成盘前 plan JSON
+python3 es_plan.py --output plan.json
+
+# Step 2 — plan.json → Markdown 报告
+python3 es_report.py plan.json -o report.md
 
 # RTH 重校准（10:00 ET 重跑后，对盘前计划做 flip 偏移/资金流符号判定）
-python3 es_plan.py --recalibrate plan.json
+python3 es_run.py --recalibrate plan.json
 ```
+
+### 外层双击脚本
+
+| 系统 | 脚本 | 用途 |
+|---|---|---|
+| Windows | `run_report.bat` | 双击生成 `report.md` |
+| macOS | `run_report.command` | 双击生成 `report.md` |
+
+> `run_report.bat` / `run_report.command` 自动检查 Python、安装依赖、校验凭据，所有 `es_run.py` 参数可透传。
 
 > 关键：用 `ES_SPX` 标的，basis 已由 TradingHub 内含（实测 `ES_SPX.spot − SPX.spot ≈ +22.7`），无需自备 ES 行情源。
 > 缺失的 VIX 家族 / EM 由 `market_data.py` 从 CBOE 免费补上（实测 VIX/VIX1D/VIX9D/VVIX/SKEW + 0DTE straddle 全部可拿）。
 
 ## 一键脚本（最省事）
 
-配好 `config.json` 后，双击即可，脚本会自动找 Python、装依赖、检查凭据、默认抓 SPX 并拆分：
+配好 `config.json` 后，双击即可，脚本会自动找 Python、装依赖、检查凭据：
 
-| 系统 | 脚本 | 用法 |
-|---|---|---|
-| macOS | `fetch.command` | 双击，或终端 `./fetch.command`（已带执行权限）|
-| Windows | `fetch.bat` | 双击，或 cmd 里 `fetch.bat` |
+| 用途 | Windows | macOS | 说明 |
+|---|---|---|---|
+| 抓期权原始数据 | `fetch.bat` | `fetch.command` | 默认抓 SPX 拆分到 `out/` |
+| **生成盘前报告** | **`run_report.bat`** | **`run_report.command`** | 默认输出 `report.md` |
 
 ```bash
+# ---- 原始数据抓取 ----
 ./fetch.command                       # 默认：SPX + 拆分到 out/
 ./fetch.command --ticker NDX          # 换标的
 ./fetch.command --output spx.json     # 切回单文件模式
 TICKER=SPY ./fetch.command            # 用环境变量指定标的（Windows: set TICKER=SPY && fetch.bat）
+
+# ---- 盘前报告一键生成 ----
+./run_report.command                  # 默认：全自动 → report.md
+./run_report.command --no-cboe        # 纯结构模式
+./run_report.command --em 45 --vwap 7748 --onh 7760 --onl 7735  # 注入技术位
 ```
 
-> 脚本只是 `spx_options.py` 的便捷封装，所有 `--ticker/--sections/--output/--split ...` 参数都能透传。
+> 脚本只是对应 Python 脚本的便捷封装，所有 CLI 参数都能透传。
 
 ## 使用
 
