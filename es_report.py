@@ -137,7 +137,8 @@ def render_md(p: dict) -> str:
     # Gamma 结构分析
     gd = p.get("gamma_detail") or {}
     if gd:
-        L.append("## Gamma 结构分析\n")
+        L.append("## Gamma 结构分析")
+        L.append("")
         # Top positive/negative table — data only, legend below
         L.append("| 方向 | 行权价 | GEX | 距现价 (点) | 距现价 (%) |")
         L.append("|---|---:|---:|---:|")
