@@ -119,14 +119,72 @@ def build_levels(opt: dict, price: float, em: float | None,
     above = sorted([c for c in clusters if c["level"] > price], key=lambda c: c["level"])
     below = sorted([c for c in clusters if c["level"] < price], key=lambda c: -c["level"])
 
-    def top_n(rows, n=3, nearest_first=True):
-        # 先按评分取前 n，再按距现价由近到远排（文档：T1=最近的高权重节点，T3=远端/波动边界）
-        picked = sorted(rows, key=lambda c: c["score"], reverse=True)[:n]
+    # ---- 结构参考位（用于目标多样性约束） ----
+    # gamma_flip 是天然的多空参考线；bull 目标应有超过 flip 的远端项，bear 同理
+    flip_level = None
+    for c in cands:
+        if c["type"] == "gamma_flip":
+            flip_level = c["level"]
+            break
+    if flip_level is None:
+        for cl in clusters:
+            if "gamma_flip" in cl.get("types", []):
+                flip_level = cl["level"]
+                break
+    # EM 边界作为绝对远端参考（期权结构薄弱处的结构性边界）
+    upper_em_level = (price + em) if em and price else None
+    lower_em_level = (price - em) if em and price else None
+
+    def _diverse_top_n(rows, n, far_threshold, far_fallback_level, far_label):
+        """按评分取 top n，但保证至少一个目标在 far_threshold 远端。
+        若 top n 全在阈值近端，用远端子集的最佳候选替换最低分目标（保留 T1）；
+        若远端子集为空，则用 far_fallback_level 合成一个结构边界目标。"""
+        if len(rows) <= n:
+            picked = list(rows)
+        else:
+            picked = sorted(rows, key=lambda c: c["score"], reverse=True)[:n]
+
+        # 判断是否需要注入远端多样性
+        has_far = any(
+            (c["level"] > far_threshold) if far_label == "upper_em"
+            else (c["level"] < far_threshold)
+            for c in picked
+        ) if far_threshold is not None else True
+
+        if not has_far and len(picked) >= 2:
+            far_pool = [c for c in rows if c not in picked and (
+                (c["level"] > far_threshold) if far_label == "upper_em"
+                else (c["level"] < far_threshold)
+            )]
+            if far_pool:
+                best_far = max(far_pool, key=lambda c: c["score"])
+                swap_out = min(picked[1:], key=lambda c: c["score"])  # 保留 T1（picked[0]）
+                picked.remove(swap_out)
+                picked.append(best_far)
+            elif far_fallback_level is not None:
+                # 没有任何远端候选 → 合成 EM 边界目标
+                synthetic = {
+                    "level": round(far_fallback_level, 2),
+                    "types": [far_label],
+                    "score": 0.3,  # 结构性兜底，低于任何实时期权信号
+                    "band": None,
+                }
+                swap_out = min(picked[1:], key=lambda c: c["score"]) if len(picked) >= 3 else None
+                if swap_out:
+                    picked.remove(swap_out)
+                picked.append(synthetic)
+
         picked.sort(key=lambda c: abs(c["level"] - price))
         return [_brief(c) for c in picked]
 
-    bull_targets = top_n(above)   # 上方目标（近端优先）
-    bear_targets = top_n(below)   # 下方目标（近端优先）
+    # 远端阈值：优先用 flip_level，退而用 EM 中间点
+    bull_far = flip_level if flip_level is not None else (
+        (price + 0.5 * em) if em else None)
+    bear_far = flip_level if flip_level is not None else (
+        (price - 0.5 * em) if em else None)
+
+    bull_targets = _diverse_top_n(above, 3, bull_far, upper_em_level, "upper_em")
+    bear_targets = _diverse_top_n(below, 3, bear_far, lower_em_level, "lower_em")
 
     # 核心多头防守：下方有 put_wall/max_neg_oi、且距离足够远（>0.5EM 或 >8 点）的强簇
     def is_put_support(c):
