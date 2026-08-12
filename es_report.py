@@ -138,24 +138,27 @@ def render_md(p: dict) -> str:
     gd = p.get("gamma_detail") or {}
     if gd:
         L.append("## Gamma 结构分析\n")
-        # Top positive/negative table
-        L.append("| 方向 | 行权价 | GEX | 距现价 | 含义 |")
+        # Top positive/negative table — data only, legend below
+        L.append("| 方向 | 行权价 | GEX | 距现价 (点) | 距现价 (%) |")
         L.append("|---|---:|---:|---:|")
         for r in (gd.get("top_positive") or [])[:5]:
             dist = (r["strike"] - spot) if spot else 0
             dist_pct = (dist / spot * 100) if spot else 0
-            L.append(f"| 🟢 正 Gamma | {r['strike']:,.2f} | {r['gex']:+,.1f} | "
-                     f"{dist:+,.1f} ({dist_pct:+.2f}%) | dealer 做多 Gamma → 跌至此位买入、涨至此位卖出（缓冲）|")
+            L.append(f"| 🟢 正 | {r['strike']:,.2f} | {r['gex']:+,.1f} | "
+                     f"{dist:+,.1f} | {dist_pct:+.2f} |")
         for r in (gd.get("top_negative") or [])[:5]:
             dist = (r["strike"] - spot) if spot else 0
             dist_pct = (dist / spot * 100) if spot else 0
-            L.append(f"| 🔴 负 Gamma | {r['strike']:,.2f} | {r['gex']:+,.1f} | "
-                     f"{dist:+,.1f} ({dist_pct:+.2f}%) | dealer 做空 Gamma → 跌至此位卖出、涨至此位买入（加速）|")
+            L.append(f"| 🔴 负 | {r['strike']:,.2f} | {r['gex']:+,.1f} | "
+                     f"{dist:+,.1f} | {dist_pct:+.2f} |")
+        L.append("")
+        L.append("> 🟢 正 Gamma = dealer 做多 Gamma，逆势对冲（跌了买、涨了卖 → **缓冲价格**）  \n"
+                 "> 🔴 负 Gamma = dealer 做空 Gamma，顺势对冲（跌了卖、涨了买 → **加速行情**）\n")
 
         # Wall summary
         cw = gd.get("call_walls") or {}
         pw = gd.get("put_walls") or {}
-        L.append(f"\n**Gamma Wall（离散 OI 墙）：**\n")
+        L.append(f"**Gamma Wall（离散 OI 墙）：**\n")
         L.append(f"- Call Wall: 0DTE **{_num(cw.get('0DTE'))}** / 1DTE+ **{_num(cw.get('1DTE+'))}**")
         L.append(f"- Put Wall: 0DTE **{_num(pw.get('0DTE'))}** / 1DTE+ **{_num(pw.get('1DTE+'))}**")
         mlg = gd.get("major_long_gamma")
@@ -186,9 +189,6 @@ def render_md(p: dict) -> str:
                 dominant = "正 Gamma 主导 → 价格倾向稳定在 Gamma 密集区" if pos_n >= neg_n else "负 Gamma 主导 → 价格在负 Gamma 区易加速"
                 L.append(f"- 正/负 Gamma 档比 {pos_n}:{neg_n}，{dominant}")
 
-        L.append("")
-        L.append("> Gamma 是 dealer 对冲行为的**地图**——正 Gamma 区 dealer 逆势操作（缓冲价格），"
-                 "负 Gamma 区 dealer 顺势操作（加速价格）。但 dealer 不是唯一的边际定价者。")
         L.append("")
 
     # 条件式计划
