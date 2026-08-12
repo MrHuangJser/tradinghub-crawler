@@ -7,6 +7,10 @@ secrets.json
 # 输出
 *.output.json
 spx.json
+plan.json
+*.plan.json
+report.md
+*.report.md
 output/
 out/
 out_*/

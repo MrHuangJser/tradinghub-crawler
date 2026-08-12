@@ -38,13 +38,36 @@ python3 spx_options.py --email your_email@example.com --password 'your_password'
 > 凭据仅用于在本机向 `tradinghubs.org/api/auth/login` 登录换取会话 Cookie，
 > 不会上传到任何第三方。`config.json` 已在 `.gitignore` 中，不会被提交。
 
+## ES 盘前确定性引擎（去 AI 化）
+
+把"SPX 期权驱动的 ES 盘前分析"算法实现成**确定性代码**（无 LLM）：
+输入 TradingHub 的 `ES_SPX` 期权结构（已含 basis 的 ES 价格空间）+ CBOE 免费数据（VIX 家族 + EM），
+输出 regime/bias/pivot/三级目标/核心防守/Squeeze/条件式文案。
+
+```bash
+# 全自动：登录 TradingHub + 抓 CBOE，生成 ES 盘前计划
+python3 es_plan.py --output plan.json
+
+# 纯结构模式（不联网 CBOE，零外部依赖）
+python3 es_plan.py --no-cboe
+
+# 注入技术位/精确 EM（解锁 pivot 融合 + 目标可达性）
+python3 es_plan.py --em 45 --vwap 7748 --onh 7760 --onl 7735 --pdh 7770 --pdl 7720 --poc 7750
+
+# RTH 重校准（10:00 ET 重跑后，对盘前计划做 flip 偏移/资金流符号判定）
+python3 es_plan.py --recalibrate plan.json
+```
+
+> 关键：用 `ES_SPX` 标的，basis 已由 TradingHub 内含（实测 `ES_SPX.spot − SPX.spot ≈ +22.7`），无需自备 ES 行情源。
+> 缺失的 VIX 家族 / EM 由 `market_data.py` 从 CBOE 免费补上（实测 VIX/VIX1D/VIX9D/VVIX/SKEW + 0DTE straddle 全部可拿）。
+
 ## 一键脚本（最省事）
 
 配好 `config.json` 后，双击即可，脚本会自动找 Python、装依赖、检查凭据、默认抓 SPX 并拆分：
 
 | 系统 | 脚本 | 用法 |
 |---|---|---|
-| macOS | `fetch.command` | 双击，或终端 `./fetch.command`（首次需 `chmod +x fetch.command`，仓库里已带执行权限）|
+| macOS | `fetch.command` | 双击，或终端 `./fetch.command`（已带执行权限）|
 | Windows | `fetch.bat` | 双击，或 cmd 里 `fetch.bat` |
 
 ```bash
@@ -55,7 +78,6 @@ TICKER=SPY ./fetch.command            # 用环境变量指定标的（Windows: s
 ```
 
 > 脚本只是 `spx_options.py` 的便捷封装，所有 `--ticker/--sections/--output/--split ...` 参数都能透传。
-
 
 ## 使用
 
