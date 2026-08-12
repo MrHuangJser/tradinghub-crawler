@@ -1,0 +1,23 @@
+# 凭据（切勿提交）
+config.json
+*.env
+.env
+secrets.json
+
+# 输出
+*.output.json
+spx.json
+output/
+out/
+out_*/
+out_flat/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 临时
+app.js
+chunks/
