@@ -141,7 +141,7 @@ def render_md(p: dict) -> str:
         L.append("")
         # Top positive/negative table — data only, legend below
         L.append("| 方向 | 行权价 | GEX | 距现价 (点) | 距现价 (%) |")
-        L.append("|---|---:|---:|---:|")
+        L.append("|---|---:|---:|---:|---:|")
         for r in (gd.get("top_positive") or [])[:5]:
             dist = (r["strike"] - spot) if spot else 0
             dist_pct = (dist / spot * 100) if spot else 0
