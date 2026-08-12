@@ -27,6 +27,7 @@ import requests
 import spx_options as S          # 复用登录/抓取/抽取
 import market_data as M
 from es_engine import build_plan, rth_recalibrate
+from es_engine import freshness as FR
 
 
 def _live_snapshots(ticker: str, basis_ticker: str) -> tuple[dict, dict]:
@@ -58,6 +59,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--es-file", default=None, help="离线：读取 ES_SPX 的 extract_ticker JSON")
     p.add_argument("--spx-file", default=None, help="离线：读取 SPX 的 extract_ticker JSON")
     p.add_argument("--output", "-o", default=None)
+    p.add_argument("--strict-freshness", action="store_true",
+                   help="时效不达标（非今日/滞后）直接拒绝输出，退出码 5")
     p.add_argument("--recalibrate", default=None, help="RTH 重校准：传入盘前计划 JSON 路径")
     return p
 
@@ -103,6 +106,18 @@ def main(argv: list[str] | None = None) -> int:
     # 5) 生成计划
     plan = build_plan(snap_es, snap_spx, market=market, overrides=overrides)
     plan["data_warnings"] = market.get("warnings", [])
+
+    # 6) 时效门禁（美东时区感知）
+    snap_ts = (snap_es.get("levels_summary") or {}).get("timestamp")
+    plan["freshness"] = FR.assess(snap_ts)
+    fr = plan["freshness"]
+    if fr["status"] not in FR.USABLE:
+        print(f"{FR.emoji(fr['status'])} 时效告警: {fr['message']} "
+              f"(数据 {fr.get('snapshot_et')} | 当前ET {fr.get('now_et')} | 会话 {fr.get('session')})",
+              file=sys.stderr)
+        if args.strict_freshness:
+            print("❌ --strict-freshness：时效不达标，拒绝输出。", file=sys.stderr)
+            return 5
 
     text = json.dumps(plan, ensure_ascii=False, indent=2)
     if args.output:

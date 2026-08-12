@@ -65,6 +65,10 @@ def render_md(p: dict) -> str:
     L.append(f"# ES 盘前结构报告 — {p.get('ticker','ES_SPX')}\n")
     L.append(f"- **生成时间**: {gen_now}")
     L.append(f"- **数据时点**: {p.get('as_of') or '—'}")
+    fr = p.get("freshness")
+    if fr:
+        L.append(f"- **时效**: {fr.get('status','—')} — {fr.get('message','')}"
+                 f"（当前ET {fr.get('now_et','—')} / 会话 {fr.get('session','—')}）")
     L.append(f"- **数据模式**: `{p.get('data_mode','—')}`"
              + ("（含 CBOE VIX 家族 + EM）" if p.get("data_mode") == "full" else "（纯期权结构，无 EM/VIX）"))
     L.append("")

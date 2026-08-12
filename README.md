@@ -54,6 +54,9 @@ python3 es_plan.py --no-cboe
 # 注入技术位/精确 EM（解锁 pivot 融合 + 目标可达性）
 python3 es_plan.py --em 45 --vwap 7748 --onh 7760 --onl 7735 --pdh 7770 --pdl 7720 --poc 7750
 
+# 时效门禁：盘中误用昨结数据会告警；--strict-freshness 直接拒绝输出（退出码 5）
+python3 es_plan.py --strict-freshness
+
 # RTH 重校准（10:00 ET 重跑后，对盘前计划做 flip 偏移/资金流符号判定）
 python3 es_plan.py --recalibrate plan.json
 ```
