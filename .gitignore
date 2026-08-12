@@ -11,6 +11,7 @@ plan.json
 *.plan.json
 report.md
 *.report.md
+market_review_*.md
 output/
 out/
 out_*/
