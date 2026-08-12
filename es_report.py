@@ -192,6 +192,71 @@ def render_md(p: dict) -> str:
 
         L.append("")
 
+    # Delta / 资金流分析
+    dd = p.get("delta_detail") or {}
+    if dd:
+        L.append("## Delta 与资金流分析")
+        L.append("")
+        L.append("| 指标 | 0DTE (日内) | 1DTE+ (结构) | 含义 |")
+        L.append("|---|---:|---:|---|")
+        dex0 = dd.get("dex_0dte", 0)
+        dex1 = dd.get("dex_1dte", 0)
+        L.append(f"| **Delta Exposure (DEX)** | {dex0:+,.1f} | {dex1:+,.1f} | "
+                 f" dealer delta 头寸；正=做多、负=做空 |")
+        call0 = dd.get("call_dex_0dte", 0)
+        call1 = dd.get("call_dex_1dte", 0)
+        L.append(f"| 　Call DEX | {call0:+,.1f} | {call1:+,.1f} | "
+                 f" call 侧 delta 暴露（正值=客户买入 call > 卖出 call）|")
+        put0 = dd.get("put_dex_0dte", 0)
+        put1 = dd.get("put_dex_1dte", 0)
+        L.append(f"| 　Put DEX | {put0:+,.1f} | {put1:+,.1f} | "
+                 f" put 侧 delta 暴露（正值=客户卖出 put > 买入 put）|")
+        cvr0 = dd.get("cvr_0dte", 0)
+        cvr1 = dd.get("cvr_1dte", 0)
+        L.append(f"| **Call Volume Ratio** | {cvr0:+,.1f} | {cvr1:+,.1f} | "
+                 f" >0=call 成交量大（偏多）、<0=put 量大（偏空）|")
+        gexr0 = dd.get("gex_ratio_0dte", 0)
+        gexr1 = dd.get("gex_ratio_1dte", 0)
+        L.append(f"| **GEX Ratio** | {gexr0:+,.1f} | {gexr1:+,.1f} | "
+                 f" 正/负 Gamma 比值 |")
+        van0 = dd.get("vanna_0dte", 0)
+        van1 = dd.get("vanna_1dte", 0)
+        L.append(f"| **Vanna** | {van0:+,.1f} | {van1:+,.1f} | "
+                 f" delta 对 IV 敏感度；负 Vanna = dealer 需在 IV 上升时卖出对冲 |")
+        ch0 = dd.get("charm_0dte", 0)
+        ch1 = dd.get("charm_1dte", 0)
+        L.append(f"| **Charm** | {ch0:+,.1f} | {ch1:+,.1f} | "
+                 f" delta 随时间衰减速度；负 Charm = 时间流逝 dealer 需卖出 |")
+
+        # Flow direction
+        dexof = dd.get("dexoflow", 0)
+        gexof = dd.get("gexoflow", 0)
+        cvrof = dd.get("cvroflow", 0)
+        L.append(f"\n**资金流方向（flow）：**\n")
+        L.append(f"- DEX 流量: {dexof:+,.1f}  |  GEX 流量: {gexof:+,.1f}  |  CVR 流量: {cvrof:+,.1f}")
+
+        # Key strike levels from delta perspective
+        max_poi = dd.get("max_pos_oi_strike")
+        max_noi = dd.get("max_neg_oi_strike")
+        max_pvol = dd.get("max_pos_vol_strike")
+        max_nvol = dd.get("max_neg_vol_strike")
+        L.append(f"\n**OI / 成交量极值：**\n")
+        L.append(f"- 最大正 OI: {_num(max_poi)}  /  最大负 OI: {_num(max_noi)}")
+        L.append(f"- 最大正成交量: {_num(max_pvol)}  /  最大负成交量: {_num(max_nvol)}")
+
+        # Interpretation
+        L.append(f"\n**Delta 结构解读：**\n")
+        net_dex = dd.get("net_dex", 0)
+        if net_dex > 0:
+            L.append(f"- 净 DEX **正** ({net_dex:+,.1f})：dealer 整体持有正 delta → 价格上涨 dealer 获利、下跌需对冲卖出 → 跌时加速")
+        else:
+            L.append(f"- 净 DEX **负** ({net_dex:+,.1f})：dealer 整体持有负 delta → 价格上涨 dealer 需对冲买入 → 涨时加速")
+        if dex0 != 0 and dex1 != 0:
+            dex_ratio = abs(dex0 / dex1) if dex1 != 0 else 999
+            L.append(f"- 0DTE/1DTE+ DEX 比: {dex_ratio:.1f}× → "
+                     f"{'日内 flow 主导 delta 结构' if dex_ratio > 2 else '结构性与日内 flow 均衡' if dex_ratio > 0.5 else '长期结构性持仓主导'}")
+        L.append("")
+
     # 条件式计划
     L.append("## 条件式计划\n")
     for s in (p.get("narrative") or []):

@@ -68,8 +68,9 @@ def build_plan(snap_es: dict, snap_spx: dict | None,
     if on_mid is None:
         limitations.append("未提供 ONH/ONL：转换位未纳入隔夜中轴(文档实证的重要候选)")
 
-    # Gamma 结构详情（用于报告渲染）
+    # Gamma / Delta 结构详情（用于报告渲染）
     from .options_layer import top_gamma_strikes as _top_g
+    of_raw = snap_es.get("orderflow") or {}
     pos_top = _top_g(opt, n=5, side="positive")
     neg_top = _top_g(opt, n=5, side="negative")
     pos_near = sorted([s for s in (opt.get("pos_gamma_strikes") or [])
@@ -112,6 +113,37 @@ def build_plan(snap_es: dict, snap_spx: dict | None,
         "negative_gamma_strikes_near_spot": levels["negative_gamma_strikes_near_spot"],
         "negative_gamma_total": levels["negative_gamma_total"],
         "gamma_detail": gamma_detail,
+        "delta_detail": {
+            # 0DTE (intraday flow)
+            "dex_0dte": round(of_raw.get("agg_dex") or 0, 1),
+            "call_dex_0dte": round(of_raw.get("agg_call_dex") or 0, 1),
+            "put_dex_0dte": round(of_raw.get("agg_put_dex") or 0, 1),
+            "cvr_0dte": round(of_raw.get("zcvr") or 0, 1),       # Call Volume Ratio >0 = call heavy
+            "gex_ratio_0dte": round(of_raw.get("zgr") or 0, 1),   # GEX ratio
+            "vanna_0dte": round(of_raw.get("zvanna") or 0, 1),
+            "charm_0dte": round(of_raw.get("zcharm") or 0, 1),
+            # 1DTE+ (structural / longer-term)
+            "dex_1dte": round(of_raw.get("one_agg_dex") or 0, 1),
+            "call_dex_1dte": round(of_raw.get("one_agg_call_dex") or 0, 1),
+            "put_dex_1dte": round(of_raw.get("one_agg_put_dex") or 0, 1),
+            "cvr_1dte": round(of_raw.get("ocvr") or 0, 1),
+            "gex_ratio_1dte": round(of_raw.get("ogr") or 0, 1),
+            "vanna_1dte": round(of_raw.get("ovanna") or 0, 1),
+            "charm_1dte": round(of_raw.get("ocharm") or 0, 1),
+            # Net totals
+            "net_dex": round(of_raw.get("net_dex") or 0, 1),
+            "net_call_dex": round(of_raw.get("net_call_dex") or 0, 1),
+            "net_put_dex": round(of_raw.get("net_put_dex") or 0, 1),
+            # Flow direction
+            "dexoflow": round(of_raw.get("dexoflow") or 0, 1),
+            "gexoflow": round(of_raw.get("gexoflow") or 0, 1),
+            "cvroflow": round(of_raw.get("cvroflow") or 0, 1),
+            # Key strikes
+            "max_pos_oi_strike": opt.get("max_pos_oi_strike"),
+            "max_neg_oi_strike": opt.get("max_neg_oi_strike"),
+            "max_pos_vol_strike": opt.get("max_pos_vol_strike"),
+            "max_neg_vol_strike": opt.get("max_neg_vol_strike"),
+        },
         "limitations": limitations,
         "source_flow": opt["flow"],
     }
