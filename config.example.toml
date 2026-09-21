@@ -20,6 +20,9 @@ vix1d_low_threshold = 10.0            # §5.5 方法C：VIX1D 极端低位
 em_reachability_discount = 0.87       # §5.5 目标可达性折扣（止损不折扣）
 flip_invalidation_spx = 10.0          # §5.4/20.3 Flip 失效阈值（SPX 点）
 basis_sync_max_skew_secs = 60         # §6.1 同步报价窗口（秒）
+parity_atm_window = 60.0              # §4.2 合成远期 ATM 窗口（SPX 点）
+parity_max_spread_frac = 0.5          # §4.2 配对价差占 mid 上限
+parity_dispersion_tol = 2.0           # §4.2 离散度（p90-p10）容忍度
 
 # ---- 离线校准工具的 LLM（parse-blogger 用；主路径不调 LLM）----
 [llm]

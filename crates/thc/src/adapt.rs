@@ -94,7 +94,15 @@ pub fn volatility(md: &MarketData) -> VolatilityData {
         vix_family: md
             .vix_family
             .iter()
-            .map(|(k, v)| (k.clone(), v.value))
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    VixObs {
+                        value: v.value,
+                        change: v.change,
+                    },
+                )
+            })
             .collect(),
         events: vec![],
     }
@@ -136,6 +144,7 @@ pub fn technicals(
     onh: Option<f64>,
     onl: Option<f64>,
     prior_pivot: Option<f64>,
+    prior_close: Option<f64>,
     realized_range: Option<f64>,
 ) -> Technicals {
     Technicals {
@@ -146,6 +155,7 @@ pub fn technicals(
         onh,
         onl,
         prior_pivot,
+        prior_close,
         realized_range,
     }
 }

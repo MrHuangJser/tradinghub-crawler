@@ -37,6 +37,9 @@ struct Inputs {
     /// 前日 Pivot
     #[arg(long)]
     prior_pivot: Option<f64>,
+    /// 前收（ES–VIX 背离判定的价格方向输入）
+    #[arg(long)]
+    prior_close: Option<f64>,
     /// 已实现波幅（点），用于 regime 细化
     #[arg(long)]
     realized_range: Option<f64>,
@@ -294,6 +297,7 @@ async fn run_plan(
             inputs.onh,
             inputs.onl,
             inputs.prior_pivot,
+            inputs.prior_close,
             inputs.realized_range,
         ),
         em,

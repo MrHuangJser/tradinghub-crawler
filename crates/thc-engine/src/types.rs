@@ -98,11 +98,18 @@ pub struct ChainContract {
     pub volume: Option<f64>,
 }
 
+/// 单个波动率指数观测（value + change；背离判定需要 change）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VixObs {
+    pub value: Option<f64>,
+    pub change: Option<f64>,
+}
+
 /// 波动率与事件数据（文档 §3.4）。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VolatilityData {
     #[serde(default)]
-    pub vix_family: BTreeMap<String, Option<f64>>,
+    pub vix_family: BTreeMap<String, VixObs>,
     #[serde(default)]
     pub events: Vec<String>,
 }
@@ -117,6 +124,8 @@ pub struct Technicals {
     pub onh: Option<f64>,
     pub onl: Option<f64>,
     pub prior_pivot: Option<f64>,
+    /// 前收（ES–VIX 背离判定的价格方向输入）
+    pub prior_close: Option<f64>,
     pub realized_range: Option<f64>,
 }
 
@@ -252,7 +261,7 @@ pub struct Plan {
     pub data_mode: String,
     pub vix: Option<f64>,
     pub vix1d: Option<f64>,
-    pub vix_family: BTreeMap<String, Option<f64>>,
+    pub vix_family: BTreeMap<String, VixObs>,
     pub em: Option<EmEstimate>,
     pub flip: Option<f64>,
     pub net_gex_vol: Option<f64>,

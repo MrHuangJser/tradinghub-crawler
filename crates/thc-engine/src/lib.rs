@@ -6,8 +6,10 @@
 //! 1:1 移植自 legacy/es_engine（rth_recalibrate 按计划不移植）。
 
 mod direction;
+mod em;
 mod levels;
 mod narrative;
+mod parity;
 mod regime;
 mod types;
 
@@ -50,6 +52,12 @@ pub struct EngineConfig {
     pub basis_sync_max_skew_secs: i64,
     /// 快照时效门禁：同日新鲜阈值（分钟）
     pub freshness_minutes: i64,
+    /// parity 合成远期：ATM 窗口（SPX 点）
+    pub parity_atm_window: f64,
+    /// parity 配对有效性：bid/ask 价差占 mid 上限
+    pub parity_max_spread_frac: f64,
+    /// parity F_syn 离散度（MAD）容忍度，超限拒绝链内衍生计算
+    pub parity_dispersion_tol: f64,
 }
 
 impl Default for EngineConfig {
@@ -67,6 +75,9 @@ impl Default for EngineConfig {
             flip_invalidation_spx: 10.0,
             basis_sync_max_skew_secs: 60,
             freshness_minutes: 15,
+            parity_atm_window: 60.0,
+            parity_max_spread_frac: 0.5,
+            parity_dispersion_tol: 2.0,
         }
     }
 }
@@ -162,13 +173,42 @@ pub fn build_plan(input: &EngineInput, cfg: &EngineConfig) -> Result<Plan, Engin
         .spot
         .ok_or_else(|| EngineError::InsufficientData("无现价".into()))?;
 
-    let em = input.em.as_ref().map(|e| e.em_0dte_spx);
+    // --- v1.1 §4.2 parity 审计 + §5.5 链内 EM 优先 ---
+    let parity = if input.chain.is_empty() {
+        None
+    } else {
+        parity::synthetic_forward(
+            &input.chain,
+            price,
+            input.analysis_date,
+            cfg.parity_atm_window,
+            cfg.parity_max_spread_frac,
+            cfg.parity_dispersion_tol,
+        )
+    };
+    let parity_rejected = parity.as_ref().is_some_and(|p| p.rejected);
+    // EM：链内推导（真 0DTE straddle 或 √T）优先于 adapt 侧估计；人工覆盖最高优先
+    let chain_em = if !input.chain.is_empty() && !parity_rejected {
+        em::from_chain(&input.chain, price, input.analysis_date)
+    } else {
+        None
+    };
+    let em_est = match input.em.as_ref().map(|e| e.method.as_str()) {
+        Some("manual override") => input.em.clone(),
+        _ => chain_em.or_else(|| input.em.clone()),
+    };
+    let em = em_est.as_ref().map(|e| e.em_0dte_spx);
+
     let vix = input
         .vix_override
-        .or_else(|| input.volatility.vix_family.get("VIX").copied().flatten());
-    let vix1d = input
-        .vix1d_override
-        .or_else(|| input.volatility.vix_family.get("VIX1D").copied().flatten());
+        .or_else(|| input.volatility.vix_family.get("VIX").and_then(|o| o.value));
+    let vix1d = input.vix1d_override.or_else(|| {
+        input
+            .volatility
+            .vix_family
+            .get("VIX1D")
+            .and_then(|o| o.value)
+    });
 
     let tech = &input.technicals;
     let on_mid = match (tech.onh, tech.onl) {
@@ -204,8 +244,65 @@ pub fn build_plan(input: &EngineInput, cfg: &EngineConfig) -> Result<Plan, Engin
     // 价位
     let lv = levels::build_levels(opt, price, em, tech, cfg);
 
-    // 血缘/时效
+    // 血缘/时效 + v1.1 §4.1 门禁（链到期日、快照交易日）
     let (lineage, lineage_msg, session) = assess_lineage(input.captured_ts, input.now_ts, cfg);
+    let mut lineage_notes = vec![lineage_msg.clone()];
+    if !input.chain.is_empty() {
+        let stale_contracts = input
+            .chain
+            .iter()
+            .filter(|c| c.expiry < input.analysis_date)
+            .count();
+        if stale_contracts > 0 {
+            lineage_notes.push(format!(
+                "期权链含 {stale_contracts} 个已过期合约（expiry<分析日），已排除"
+            ));
+        }
+        if let Some(min_exp) = input.chain.iter().map(|c| c.expiry).min()
+            && min_exp < input.analysis_date
+        {
+            lineage_notes.push("⚠️ 链的最近到期日早于分析日：快照可能是历史数据".into());
+        }
+    }
+    if let Some(p) = &parity {
+        lineage_notes.push(format!(
+            "Parity 合成远期 {:.2}（{} 对，离散 {:.2}）{}",
+            p.synthetic_forward,
+            p.pairs,
+            p.dispersion,
+            if p.rejected {
+                "→ 离散超限，链内衍生指标拒绝"
+            } else {
+                ""
+            }
+        ));
+    }
+    // §10.1 期限结构 vs ES–VIX 背离分开判定
+    let vix9d = input
+        .volatility
+        .vix_family
+        .get("VIX9D")
+        .and_then(|o| o.value);
+    if let (Some(v1d), Some(v9d)) = (vix1d, vix9d)
+        && v1d > v9d
+    {
+        lineage_notes.push(format!(
+            "期限结构倒挂：VIX1D {v1d} > VIX9D {v9d}（事件溢价）"
+        ));
+    }
+    let es_vix_divergence = match (input.technicals.prior_close, vix) {
+        (Some(pc), _) if price > pc => input
+            .volatility
+            .vix_family
+            .get("VIX")
+            .and_then(|o| o.change)
+            .is_some_and(|c| c > 0.0),
+        _ => false,
+    };
+    if es_vix_divergence {
+        lineage_notes
+            .push("ES–VIX 背离：ES 上涨同时 VIX 上行 → 突破质量降级，首触按止盈/观察处理".into());
+    }
     let freshness = input.captured_ts.map(|snap| {
         let staleness_min = (input.now_ts - snap) as f64 / 60.0;
         serde_json::json!({
@@ -299,7 +396,7 @@ pub fn build_plan(input: &EngineInput, cfg: &EngineConfig) -> Result<Plan, Engin
         vix,
         vix1d,
         vix_family: input.volatility.vix_family.clone(),
-        em: input.em.clone(),
+        em: em_est.clone(),
         flip: opt.flip,
         net_gex_vol: opt.net_gex_vol,
         regime: regime_out.regime,
@@ -321,10 +418,9 @@ pub fn build_plan(input: &EngineInput, cfg: &EngineConfig) -> Result<Plan, Engin
         narrative: vec![],
         limitations,
         lineage,
-        lineage_notes: vec![lineage_msg],
-        // v1.1 字段在后续提交填充（parity/dual-EM/动态静态分离）
-        synthetic_forward: None,
-        parity: None,
+        lineage_notes,
+        synthetic_forward: parity.as_ref().map(|p| p.synthetic_forward),
+        parity,
         session_em: em,
         remaining_em: em,
         freshness,
