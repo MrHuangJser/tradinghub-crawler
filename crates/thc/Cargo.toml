@@ -1,0 +1,22 @@
+[package]
+name = "thc"
+description = "TradingHub crawler & ES premarket report CLI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["llm"]
+llm = []
+
+[dependencies]
+thc-engine = { path = "../thc-engine" }
+anyhow.workspace = true
+clap.workspace = true
+jiff.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+toml.workspace = true

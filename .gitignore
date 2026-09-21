@@ -1,5 +1,6 @@
 # 凭据（切勿提交）
 config.json
+config.toml
 *.env
 .env
 secrets.json
@@ -17,12 +18,23 @@ out/
 out_*/
 out_flat/
 
-# Python
+# 每日归档（校准集，本地产物不入库）
+archive/
+
+# Python（legacy/）
 __pycache__/
 *.pyc
 .venv/
 venv/
 
+# Rust
+/target
+# Cargo.lock 提交（二进制项目保证 CI 可复现）
+
 # 临时
 app.js
 chunks/
+.DS_Store
+
+# 会话记忆（本地工具产物）
+.mnemon/

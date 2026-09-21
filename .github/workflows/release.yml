@@ -1,0 +1,39 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, artifact: thc-windows-x64.exe, bin: thc.exe }
+          - { target: x86_64-apple-darwin, os: macos-13, artifact: thc-macos-x64, bin: thc }
+          - { target: aarch64-apple-darwin, os: macos-latest, artifact: thc-macos-arm64, bin: thc }
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, artifact: thc-linux-x64, bin: thc }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Install musl toolchain (linux only)
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release --locked --target ${{ matrix.target }} -p thc
+      - name: Package artifact + checksum
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "dist/${{ matrix.artifact }}"
+          cd dist && sha256sum "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

@@ -1,0 +1,30 @@
+# thc 配置（复制为 config.toml 并填入凭据；config.toml 已 gitignore）
+# 优先级：CLI 参数 > 环境变量 > 本文件
+
+[tradinghub]
+# TradingHub 账号（Options Level Pro 订阅者）。也可用环境变量：
+#   TRADINGHUB_EMAIL / TRADINGHUB_PASSWORD
+email = "your_email@example.com"
+password = "your_password"
+
+# ---- 引擎参数：默认值 = 算法文档 v1.1；校准数据积累后再调 ----
+[engine]
+weight_options_strength = 0.30        # §8 评分权重
+weight_technical_confluence = 0.25
+weight_proximity = 0.20
+weight_expected_move_alignment = 0.15
+weight_historical_reaction = 0.10
+cluster_tolerance_em_coef = 0.02      # §7.2 聚类容差 = max(1.0, coef*EM)
+pivot_buffer_em_coef = 0.05           # §9.1 buffer = max(2.0, coef*EM)
+vix1d_low_threshold = 10.0            # §5.5 方法C：VIX1D 极端低位
+em_reachability_discount = 0.87       # §5.5 目标可达性折扣（止损不折扣）
+flip_invalidation_spx = 10.0          # §5.4/20.3 Flip 失效阈值（SPX 点）
+basis_sync_max_skew_secs = 60         # §6.1 同步报价窗口（秒）
+
+# ---- 离线校准工具的 LLM（parse-blogger 用；主路径不调 LLM）----
+[llm]
+# OpenAI 兼容协议。DeepSeek 官方 base URL：
+base_url = "https://api.deepseek.com/v1"
+model = "deepseek-flash"              # env THC_LLM_MODEL 可覆盖
+# api_key 推荐走环境变量：OPENAI_API_KEY 或 DEEPSEEK_API_KEY
+# api_key = "sk-..."

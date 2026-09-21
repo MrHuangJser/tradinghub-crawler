@@ -1,11 +1,16 @@
 # TradingHub SPX 期权数据抓取工具
 
+> ⚠️ **重构进行中**：本项目正在按 [`REFACTOR_PLAN.md`](./REFACTOR_PLAN.md) 重写为 Rust。
+> 新代码在 `crates/`（`cargo build`）；原 Python 实现完整保留在 [`legacy/`](./legacy/) 且仍可运行
+> （`cd legacy && python3 es_run.py`，包装脚本用法不变）。本文档描述的仍是 Python 版用法，
+> 重构完成后重写。算法依据见 [`docs/SPX期权驱动的ES盘前分析算法-逆向重建.md`](./docs/SPX期权驱动的ES盘前分析算法-逆向重建.md)。
+
 把 `https://tradinghubs.org/OptionsDataViewer` 页面上的**全部期权数据（表格 + 图表）**
 直接抓成 JSON，免去手动截图喂给 AI 的麻烦。
 
 > 工作原理：该页面的所有数据（包括 echarts 图表的数据）都来自两个 JSON 接口，
 > 仅靠一个会话 Cookie 鉴权。本工具用账号密码自动登录拿到 Cookie，再请求这两个接口，
-> 合并后抽出指定标的（默认 SPX）输出。逆向分析详见 [`ANALYSIS.md`](./ANALYSIS.md)。
+> 合并后抽出指定标的（默认 SPX）输出。逆向分析详见 [`docs/ANALYSIS.md`](./docs/ANALYSIS.md)。
 
 ## 安装
 
