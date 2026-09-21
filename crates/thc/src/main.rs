@@ -297,8 +297,9 @@ async fn run_plan(
             .as_ref()
             .and_then(|m| m.em.as_ref().map(adapt::em_estimate)),
     };
+    let today = adapt::et_today();
     let input = EngineInput {
-        analysis_date: adapt::et_today(),
+        analysis_date: today,
         now_ts: jiff::Timestamp::now().as_second(),
         as_of: snap_es
             .captured_at
@@ -309,7 +310,7 @@ async fn run_plan(
         captured_ts: snap_es
             .captured_ts
             .or_else(|| snap_es.levels_summary.as_ref().map(|l| l.timestamp)),
-        options: adapt::options_structure(&snap_es),
+        options: adapt::options_structure(&snap_es, today),
         volatility: market.as_ref().map(adapt::volatility).unwrap_or_default(),
         technicals: adapt::technicals(
             inputs.vwap,
@@ -430,8 +431,9 @@ async fn run_full(
             .as_ref()
             .and_then(|m| m.em.as_ref().map(adapt::em_estimate)),
     };
+    let today = adapt::et_today();
     let input = EngineInput {
-        analysis_date: adapt::et_today(),
+        analysis_date: today,
         now_ts: jiff::Timestamp::now().as_second(),
         as_of: snap_es
             .captured_at
@@ -442,7 +444,7 @@ async fn run_full(
         captured_ts: snap_es
             .captured_ts
             .or_else(|| snap_es.levels_summary.as_ref().map(|l| l.timestamp)),
-        options: adapt::options_structure(&snap_es),
+        options: adapt::options_structure(&snap_es, today),
         volatility: market.as_ref().map(adapt::volatility).unwrap_or_default(),
         technicals: adapt::technicals(
             inputs.vwap,

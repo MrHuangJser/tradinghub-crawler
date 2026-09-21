@@ -7,7 +7,9 @@ use jiff::civil::Date;
 use thc_engine::*;
 
 /// TradingHub 标的视图 → OptionStructure（对应 legacy options_layer.extract_options）。
-pub fn options_structure(view: &TickerView) -> OptionStructure {
+/// 自适应 DTE 对齐：若快照日期早于分析日（昨结快照/盘前场景），
+/// TradingHub 的 1DTE+ 映射为今日 0DTE，昨日 0DTE 标记为 expired。
+pub fn options_structure(view: &TickerView, today: Date) -> OptionStructure {
     let mut s = OptionStructure::default();
     let lv = view.levels_summary.as_ref();
     let of = view.orderflow.as_ref();
@@ -15,13 +17,40 @@ pub fn options_structure(view: &TickerView) -> OptionStructure {
     s.flip = lv.and_then(|l| l.zero_gamma);
     s.net_gex_vol = lv.and_then(|l| l.net_gex_vol);
     s.net_gex_oi = lv.and_then(|l| l.net_gex_oi);
+
+    let snap_date = view
+        .captured_ts
+        .or_else(|| lv.map(|l| l.timestamp))
+        .and_then(|ts| jiff::Timestamp::from_second(ts).ok())
+        .map(|t| {
+            t.to_zoned(jiff::tz::TimeZone::get("America/New_York").expect("ET tz"))
+                .date()
+        });
+    let is_prior_close = snap_date.is_some_and(|d| d < today);
+
     if let Some(of) = of {
-        s.call_wall_0dte = of.zero_mcall;
-        s.call_wall_1dte = of.one_mcall;
-        s.put_wall_0dte = of.zero_mput;
-        s.put_wall_1dte = of.one_mput;
-        s.major_long_gamma = of.z_mlgamma;
-        s.major_short_gamma = of.z_msgamma;
+        if is_prior_close {
+            // 盘前昨结快照：昨天的 1DTE+ 才是今日开盘真正要到期的今日 0DTE！
+            // 昨天的 0DTE 在昨日 16:00 已到期结算，降级为 expired 标记
+            s.call_wall_0dte = of.one_mcall.or(of.zero_mcall);
+            s.put_wall_0dte = of.one_mput.or(of.zero_mput);
+            s.call_wall_1dte = None;
+            s.put_wall_1dte = None;
+            s.call_wall_expired = of.zero_mcall;
+            s.put_wall_expired = of.zero_mput;
+            s.major_long_gamma = of.o_mlgamma.or(of.z_mlgamma);
+            s.major_short_gamma = of.o_msgamma.or(of.z_msgamma);
+        } else {
+            // 今日盘中快照：zero 就是今天的 0DTE
+            s.call_wall_0dte = of.zero_mcall;
+            s.call_wall_1dte = of.one_mcall;
+            s.put_wall_0dte = of.zero_mput;
+            s.put_wall_1dte = of.one_mput;
+            s.call_wall_expired = None;
+            s.put_wall_expired = None;
+            s.major_long_gamma = of.z_mlgamma;
+            s.major_short_gamma = of.z_msgamma;
+        }
         s.flow = FlowState {
             zcvr: of.zcvr,
             ocvr: of.ocvr,

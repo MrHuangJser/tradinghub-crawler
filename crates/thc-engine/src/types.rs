@@ -67,6 +67,12 @@ pub struct OptionStructure {
     pub call_wall_1dte: Option<f64>,
     pub put_wall_0dte: Option<f64>,
     pub put_wall_1dte: Option<f64>,
+    /// 若快照是昨收，记录昨日已结算的 Call 墙（仅作参考）
+    #[serde(default)]
+    pub call_wall_expired: Option<f64>,
+    /// 若快照是昨收，记录昨日已结算的 Put 墙（仅作参考）
+    #[serde(default)]
+    pub put_wall_expired: Option<f64>,
     pub major_long_gamma: Option<f64>,
     pub major_short_gamma: Option<f64>,
     pub max_pos_oi: Option<f64>,

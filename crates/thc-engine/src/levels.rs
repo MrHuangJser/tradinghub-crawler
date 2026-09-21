@@ -66,6 +66,8 @@ fn build_candidates(opt: &OptionStructure, em: Option<f64>, tech: &Technicals) -
     add(opt.call_wall_1dte, "call_wall(1DTE+)", 1.5);
     add(opt.put_wall_0dte, "put_wall(0DTE)", 1.5);
     add(opt.put_wall_1dte, "put_wall(1DTE+)", 1.5);
+    add(opt.call_wall_expired, "call_wall(yesterday_expired)", 1.0);
+    add(opt.put_wall_expired, "put_wall(yesterday_expired)", 1.0);
     add(opt.major_long_gamma, "major_long_gamma", 1.0);
     add(opt.major_short_gamma, "major_short_gamma", 1.0);
     add(opt.max_pos_oi, "max_pos_oi", 1.3);

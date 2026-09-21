@@ -490,6 +490,8 @@ mod tests {
                 call_wall_1dte: Some(7740.0),
                 put_wall_0dte: Some(7660.0),
                 put_wall_1dte: Some(7640.0),
+                call_wall_expired: None,
+                put_wall_expired: None,
                 major_long_gamma: Some(7680.0),
                 major_short_gamma: Some(7690.0),
                 max_pos_oi: Some(7720.0),
