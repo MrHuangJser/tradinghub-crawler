@@ -165,14 +165,14 @@ async fn real_main() -> Result<i32> {
         )
         .await
         {
-            Ok(code) => return Ok(code),
+            Ok(code) => Ok(code),
             Err(e) => {
                 eprintln!("❌ {e:#}");
                 let code = e
                     .downcast_ref::<crawl::FetchError>()
                     .map(|f| f.exit_code())
                     .unwrap_or(1);
-                return Ok(code);
+                Ok(code)
             }
         },
         Command::Fetch {
@@ -187,10 +187,10 @@ async fn real_main() -> Result<i32> {
                 crawl::run_fetch(&_cfg, &ticker, raw, output.as_deref()).await
             };
             match res {
-                Ok(code) => return Ok(code),
+                Ok(code) => Ok(code),
                 Err(e) => {
                     eprintln!("❌ {e}");
-                    return Ok(e.exit_code());
+                    Ok(e.exit_code())
                 }
             }
         }
@@ -199,38 +199,41 @@ async fn real_main() -> Result<i32> {
             output,
             offline,
         } => match run_plan(&_cfg, inputs, &output, offline).await {
-            Ok(code) => return Ok(code),
+            Ok(code) => Ok(code),
             Err(e) => {
                 eprintln!("❌ {e:#}");
                 let code = e
                     .downcast_ref::<crawl::FetchError>()
                     .map(|f| f.exit_code())
                     .unwrap_or(1);
-                return Ok(code);
+                Ok(code)
             }
         },
         Command::Report { plan, output } => match run_report(&plan, output.as_deref()) {
-            Ok(code) => return Ok(code),
+            Ok(code) => Ok(code),
             Err(e) => {
                 eprintln!("❌ {e:#}");
-                return Ok(1);
+                Ok(1)
             }
         },
         #[cfg(feature = "llm")]
         Command::ParseBlogger { inputs, output } => {
-            let _ = (inputs, output);
-            todo_exit("parse-blogger")
+            match tools::parse_blogger::run(&_cfg, inputs, output).await {
+                Ok(code) => Ok(code),
+                Err(e) => {
+                    eprintln!("❌ {e:#}");
+                    Ok(1)
+                }
+            }
         }
-        Command::Compare { plan, blogger } => {
-            let _ = (plan, blogger);
-            todo_exit("compare")
-        }
+        Command::Compare { plan, blogger } => match tools::compare::run(&plan, &blogger) {
+            Ok(code) => Ok(code),
+            Err(e) => {
+                eprintln!("❌ {e:#}");
+                Ok(1)
+            }
+        },
     }
-    .map(|()| 0)
-}
-
-fn todo_exit(name: &str) -> Result<()> {
-    anyhow::bail!("子命令 `{name}` 尚未实现（Phase 2+）。骨架已就绪。")
 }
 
 /// `thc plan`：抓取（或离线文件）→ adapt → engine → plan.json。

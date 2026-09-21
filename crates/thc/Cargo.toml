@@ -13,6 +13,7 @@ llm = []
 [dependencies]
 thc-engine = { path = "../thc-engine" }
 anyhow.workspace = true
+base64.workspace = true
 clap.workspace = true
 jiff.workspace = true
 reqwest.workspace = true

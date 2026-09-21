@@ -434,3 +434,153 @@ pub fn build_plan(input: &EngineInput, cfg: &EngineConfig) -> Result<Plan, Engin
 fn r1(x: Option<f64>) -> Option<f64> {
     x.map(|v| (v * 10.0).round() / 10.0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jiff::civil::date;
+
+    /// 合成快照：spot 7700、flip 7695、墙位上下、带真 0DTE 链。
+    /// （真实抓取数据因 ToS 不入库，测试全部用合成数据。）
+    fn synth_input(now_ts: i64) -> EngineInput {
+        let ladder = (7650..=7750)
+            .step_by(5)
+            .map(|s| LadderPoint {
+                strike: s as f64,
+                current_value: Some(if s < 7695 { -800.0 } else { 600.0 }),
+                side: Some(if s < 7695 {
+                    "negative".into()
+                } else {
+                    "positive".into()
+                }),
+            })
+            .collect();
+        let mut chain = Vec::new();
+        let today = date(2026, 9, 21);
+        for k in [7640.0f64, 7660.0, 7680.0, 7700.0, 7720.0, 7740.0] {
+            // 平价自洽：call=intrinsic+时间价值5, put=intrinsic+5 ⇒ K+C−P=7700 恒成立
+            // ATM(7700) straddle = 5+5 = 10
+            let call_mid = (7700.0 - k).max(0.0) + 5.0;
+            let put_mid = (k - 7700.0).max(0.0) + 5.0;
+            for (is_call, mid) in [(true, call_mid), (false, put_mid)] {
+                chain.push(ChainContract {
+                    expiry: today,
+                    is_call,
+                    strike: k,
+                    bid: Some(mid - 0.5),
+                    ask: Some(mid + 0.5),
+                    iv: Some(0.10),
+                    open_interest: Some(1000.0),
+                    volume: Some(500.0),
+                });
+            }
+        }
+        EngineInput {
+            analysis_date: today,
+            now_ts,
+            as_of: "2026-09-21 08:30:00 EDT".into(),
+            ticker: "ES_SPX".into(),
+            captured_ts: Some(now_ts - 300), // 5 分钟前
+            options: OptionStructure {
+                spot: Some(7700.0),
+                flip: Some(7695.0),
+                net_gex_vol: Some(500_000.0),
+                net_gex_oi: Some(-1000.0),
+                call_wall_0dte: Some(7720.0),
+                call_wall_1dte: Some(7740.0),
+                put_wall_0dte: Some(7660.0),
+                put_wall_1dte: Some(7640.0),
+                major_long_gamma: Some(7680.0),
+                major_short_gamma: Some(7690.0),
+                max_pos_oi: Some(7720.0),
+                max_neg_oi: Some(7660.0),
+                max_pos_vol: Some(7715.0),
+                max_neg_vol: Some(7685.0),
+                gamma_ladder: ladder,
+                neg_gamma_strikes: vec![7650.0, 7655.0, 7660.0, 7690.0],
+                pos_gamma_strikes: vec![7700.0, 7705.0, 7710.0],
+                flow: FlowState {
+                    zcvr: Some(1000.0),
+                    net_gex_vol: Some(500_000.0),
+                    ..Default::default()
+                },
+                orderflow: OrderflowMetrics {
+                    cvr_0dte: Some(1000.0),
+                    ..Default::default()
+                },
+            },
+            volatility: VolatilityData::default(),
+            technicals: Technicals {
+                vwap: Some(7696.0),
+                poc: Some(7694.0),
+                onh: Some(7710.0),
+                onl: Some(7688.0),
+                ..Default::default()
+            },
+            em: None,
+            chain,
+            embedded_basis: Some(30.0),
+            vix_override: None,
+            vix1d_override: None,
+        }
+    }
+
+    #[test]
+    fn build_plan_end_to_end() {
+        let now = 1_760_000_000;
+        let input = synth_input(now);
+        let cfg = EngineConfig::default();
+        let plan = build_plan(&input, &cfg).expect("plan");
+
+        // 血缘：5 分钟前 → FRESH
+        assert_eq!(plan.lineage, LineageStatus::Fresh);
+        // 真 0DTE straddle EM：ATM 7700 附近 straddle≈10（c+put mid 各≈5）
+        let em = plan.em.as_ref().expect("em from chain");
+        assert_eq!(em.method, "0DTE ATM straddle");
+        assert!((em.em_0dte_spx - 10.0).abs() < 1.5, "em={}", em.em_0dte_spx);
+        assert_eq!(plan.session_em, Some(em.em_0dte_spx));
+        // parity 合成远期：C−P≈0 → F≈7700
+        let p = plan.parity.as_ref().expect("parity");
+        assert!((p.synthetic_forward - 7700.0).abs() < 5.0);
+        assert!(!p.rejected);
+        // pivot：flip(7695)+on_mid(7699)+vwap(7696)+poc(7694) 中位数=7696
+        assert_eq!(plan.pivot.as_ref().unwrap().level, 7696.0);
+        // spot 7700 > pivot+buffer(2) → BULLISH
+        assert_eq!(plan.bias, Some(Bias::Bullish));
+        // 目标非空、按距离排序
+        assert!(!plan.bull_targets.is_empty());
+        assert!(!plan.bear_targets.is_empty());
+        assert!(plan.bull_targets[0].level > 7700.0);
+        assert!(plan.bear_targets[0].level < 7700.0);
+        // 叙事非空且含地图免责
+        assert!(!plan.narrative.is_empty());
+        assert!(plan.narrative.last().unwrap().contains("地图"));
+        // 序列化往返
+        let json = serde_json::to_string(&plan).unwrap();
+        let back: Plan = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.pivot.unwrap().level, 7696.0);
+    }
+
+    #[test]
+    fn manual_em_override_beats_chain() {
+        let mut input = synth_input(1_760_000_000);
+        input.em = Some(EmEstimate {
+            em_0dte_spx: 45.0,
+            method: "manual override".into(),
+            source_expiry: None,
+            source_straddle: None,
+        });
+        let plan = build_plan(&input, &EngineConfig::default()).unwrap();
+        assert_eq!(plan.em.unwrap().em_0dte_spx, 45.0);
+    }
+
+    #[test]
+    fn engine_config_defaults_match_doc() {
+        let c = EngineConfig::default();
+        assert_eq!(c.em_reachability_discount, 0.87);
+        assert_eq!(c.vix1d_low_threshold, 10.0);
+        assert_eq!(c.basis_sync_max_skew_secs, 60);
+        assert_eq!(c.flip_invalidation_spx, 10.0);
+        assert_eq!(c.weight_options_strength, 0.30);
+    }
+}
