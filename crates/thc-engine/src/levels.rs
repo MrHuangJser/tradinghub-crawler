@@ -163,15 +163,18 @@ fn score_cluster(
 ) -> (f64, BTreeMap<String, f64>) {
     let dist = (cl.level - price).abs();
     let (prox, em_align) = if let Some(em) = em {
-        let prox = if 0.3 * em <= dist && dist <= 1.0 * em {
+        // §5.5 方法C：0DTE straddle 历史上平均高估实际波动约 13%，
+        // "目标可达性"口径打 0.87 折（止损距离不折扣）。
+        let em_r = em * cfg.em_reachability_discount;
+        let prox = if 0.3 * em_r <= dist && dist <= 1.0 * em_r {
             1.0
         } else {
-            (1.0 - (dist - 0.65 * em).abs() / em).max(0.0)
+            (1.0 - (dist - 0.65 * em_r).abs() / em_r).max(0.0)
         };
-        let em_align = if dist <= 1.2 * em {
+        let em_align = if dist <= 1.2 * em_r {
             1.0
         } else {
-            (1.0 - (dist - 1.2 * em) / em).max(0.0)
+            (1.0 - (dist - 1.2 * em_r) / em_r).max(0.0)
         };
         (prox, Some(em_align))
     } else {

@@ -155,10 +155,26 @@ async fn real_main() -> Result<i32> {
             offline,
             no_archive,
             stdout,
-        } => {
-            let _ = (inputs, output, offline, no_archive, stdout);
-            todo_exit("run")
-        }
+        } => match run_full(
+            &_cfg,
+            inputs,
+            output.as_deref(),
+            offline,
+            no_archive,
+            stdout,
+        )
+        .await
+        {
+            Ok(code) => return Ok(code),
+            Err(e) => {
+                eprintln!("❌ {e:#}");
+                let code = e
+                    .downcast_ref::<crawl::FetchError>()
+                    .map(|f| f.exit_code())
+                    .unwrap_or(1);
+                return Ok(code);
+            }
+        },
         Command::Fetch {
             ticker,
             raw,
@@ -193,10 +209,13 @@ async fn real_main() -> Result<i32> {
                 return Ok(code);
             }
         },
-        Command::Report { plan, output } => {
-            let _ = (plan, output);
-            todo_exit("report")
-        }
+        Command::Report { plan, output } => match run_report(&plan, output.as_deref()) {
+            Ok(code) => return Ok(code),
+            Err(e) => {
+                eprintln!("❌ {e:#}");
+                return Ok(1);
+            }
+        },
         #[cfg(feature = "llm")]
         Command::ParseBlogger { inputs, output } => {
             let _ = (inputs, output);
@@ -321,6 +340,160 @@ async fn run_plan(
     eprintln!("✅ 计划已写入 {output}");
     for line in &plan.narrative {
         eprintln!("  {line}");
+    }
+    Ok(0)
+}
+
+/// `thc report`：plan.json → Markdown。
+fn run_report(plan_path: &str, output: Option<&str>) -> Result<i32> {
+    let plan: thc_engine::Plan = serde_json::from_str(
+        &std::fs::read_to_string(plan_path)
+            .map_err(|e| anyhow::anyhow!("读取 {plan_path} 失败: {e}"))?,
+    )
+    .map_err(|e| anyhow::anyhow!("解析 {plan_path} 失败: {e}"))?;
+    let md = render::render(&plan);
+    match output {
+        Some(p) => {
+            std::fs::write(p, &md)?;
+            eprintln!("✅ 报告已写入 {p}");
+        }
+        None => print!("{md}"),
+    }
+    Ok(0)
+}
+
+/// `thc run`：全流程——抓取 → 引擎 → report.md + 归档。
+async fn run_full(
+    cfg: &config::AppConfig,
+    inputs: Inputs,
+    output: Option<&str>,
+    offline: bool,
+    no_archive: bool,
+    stdout: bool,
+) -> Result<i32> {
+    use thc_engine::{EmEstimate, EngineInput};
+
+    // 抓取（在线或离线文件），同时拿 raw payload 供归档
+    let (snap_es, snap_spx, raw) = if let Some(es_file) = &inputs.es_file {
+        let es: crawl::payload::TickerView = serde_json::from_str(
+            &std::fs::read_to_string(es_file)
+                .map_err(|e| anyhow::anyhow!("读取 {es_file} 失败: {e}"))?,
+        )
+        .map_err(|e| anyhow::anyhow!("解析 {es_file} 失败: {e}"))?;
+        let spx = match &inputs.spx_file {
+            Some(f) => Some(
+                serde_json::from_str(
+                    &std::fs::read_to_string(f)
+                        .map_err(|e| anyhow::anyhow!("读取 {f} 失败: {e}"))?,
+                )
+                .map_err(|e| anyhow::anyhow!("解析 {f} 失败: {e}"))?,
+            ),
+            None => None,
+        };
+        (es, spx, None)
+    } else {
+        let client = crawl::tradinghub::Client::new();
+        client
+            .login(
+                cfg.tradinghub.email.as_deref().unwrap_or(""),
+                cfg.tradinghub.password.as_deref().unwrap_or(""),
+            )
+            .await
+            .map_err(anyhow::Error::from)?;
+        let merged = client.fetch_merged().await.map_err(anyhow::Error::from)?;
+        let es = merged.view("ES_SPX").map_err(anyhow::Error::from)?;
+        let spx = merged.view("SPX").ok();
+        (es, spx, Some(merged.raw()))
+    };
+
+    let market = if !offline && inputs.em.is_none() {
+        Some(crawl::cboe::Cboe::new().market_data(true).await)
+    } else {
+        None
+    };
+    let data_warnings: Vec<String> = market
+        .as_ref()
+        .map(|m| m.warnings.clone())
+        .unwrap_or_default();
+
+    let em = match inputs.em {
+        Some(e) => Some(EmEstimate {
+            em_0dte_spx: e,
+            method: "manual override".into(),
+            source_expiry: None,
+            source_straddle: None,
+        }),
+        None => market
+            .as_ref()
+            .and_then(|m| m.em.as_ref().map(adapt::em_estimate)),
+    };
+    let input = EngineInput {
+        analysis_date: adapt::et_today(),
+        now_ts: jiff::Timestamp::now().as_second(),
+        as_of: snap_es
+            .captured_at
+            .clone()
+            .or_else(|| snap_es.generated_at.clone())
+            .unwrap_or_default(),
+        ticker: "ES_SPX".into(),
+        captured_ts: snap_es
+            .captured_ts
+            .or_else(|| snap_es.levels_summary.as_ref().map(|l| l.timestamp)),
+        options: adapt::options_structure(&snap_es),
+        volatility: market.as_ref().map(adapt::volatility).unwrap_or_default(),
+        technicals: adapt::technicals(
+            inputs.vwap,
+            inputs.poc,
+            inputs.pdh,
+            inputs.pdl,
+            inputs.onh,
+            inputs.onl,
+            inputs.prior_pivot,
+            inputs.prior_close,
+            inputs.realized_range,
+        ),
+        em,
+        chain: market
+            .as_ref()
+            .and_then(|m| m.chain.as_ref())
+            .map(|c| adapt::chain_contracts(&c.options))
+            .unwrap_or_default(),
+        embedded_basis: adapt::embedded_basis(&snap_es, snap_spx.as_ref()),
+        vix_override: inputs.vix,
+        vix1d_override: inputs.vix1d,
+    };
+
+    let mut plan = thc_engine::build_plan(&input, &cfg.engine)
+        .map_err(|e| anyhow::anyhow!("引擎失败: {e}"))?;
+    plan.data_warnings = data_warnings;
+
+    let report_md = render::render(&plan);
+    let plan_json = serde_json::to_string_pretty(&plan)?;
+
+    // 归档（默认开）
+    if !no_archive {
+        let written = archive::save(
+            &input.analysis_date,
+            raw.as_ref(),
+            Some(&plan_json),
+            Some(&report_md),
+        )?;
+        eprintln!(
+            "📦 已归档 {} 个文件到 {}",
+            written.len(),
+            archive::day_dir(&input.analysis_date).display()
+        );
+    }
+
+    let out_path = output.unwrap_or("report.md");
+    if stdout {
+        print!("{report_md}");
+    } else {
+        std::fs::write(out_path, &report_md)?;
+        eprintln!("✅ 报告已写入 {out_path}");
+        for line in &plan.narrative {
+            eprintln!("  {line}");
+        }
     }
     Ok(0)
 }
