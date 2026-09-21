@@ -248,10 +248,10 @@ impl Straddle {
         }
         let straddle = self.call_mid + self.put_mid;
         Some(EmInfo {
-            em_0dte_spx: straddle / (self.dte as f64).sqrt(),
+            em_0dte_spx: ((straddle / (self.dte as f64).sqrt()) * 100.0).round() / 100.0,
             method: format!("monthly ATM straddle / √DTE (DTE={})", self.dte),
             source_expiry: self.expiry.to_string(),
-            source_straddle: straddle,
+            source_straddle: (straddle * 100.0).round() / 100.0,
             atm_strike: self.strike,
             atm_iv: self.iv_atm,
         })

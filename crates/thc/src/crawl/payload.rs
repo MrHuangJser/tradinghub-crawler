@@ -172,11 +172,16 @@ pub struct StateBlock {
 pub type MiniRow = (f64, f64, f64, f64, Vec<Option<f64>>, f64, Value);
 
 /// `gex_proxy.<T>`：前列 Gamma 行权价。
+/// 注：legacy extract_ticker 输出只保留 {metrics, ladder} 子集，
+/// 故身份字段放宽为 Option 以兼容离线文件（--es-file）。
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GexProxy {
-    pub ticker: String,
-    pub timestamp: i64,
-    pub spot: f64,
+    #[serde(default)]
+    pub ticker: Option<String>,
+    #[serde(default)]
+    pub timestamp: Option<i64>,
+    #[serde(default)]
+    pub spot: Option<f64>,
     pub min_dte: Option<i64>,
     pub sec_min_dte: Option<i64>,
     pub major_positive: Option<f64>,
@@ -309,12 +314,14 @@ pub struct MetricRow {
 // 合并视图（对应 legacy extract_ticker 的输出）
 // ---------------------------------------------------------------------------
 
-/// `fetch` 输出的标的视图。
-#[derive(Debug, Serialize)]
+/// `fetch` 输出的标的视图。Deserialize 容忍 legacy extract_ticker JSON 子集。
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct TickerView {
+    #[serde(default)]
     pub ticker: String,
     pub generated_at: Option<String>,
     pub last_updated_at: Option<String>,
+    #[serde(default)]
     pub stale: bool,
     pub spot: Option<f64>,
     /// ET 时区格式化捕获时间（沿用旧工具的展示口径）
@@ -330,15 +337,19 @@ pub struct TickerView {
 }
 
 /// 按 DTE 聚合的 exposure（zero/one/net 三键）。
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct DteExposure {
+    #[serde(default)]
     pub gex: DteSet<ChainBlock>,
+    #[serde(default)]
     pub dex: DteSet<StateBlock>,
+    #[serde(default)]
     pub vex: DteSet<StateBlock>,
+    #[serde(default)]
     pub chex: DteSet<StateBlock>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct DteSet<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zero: Option<T>,
