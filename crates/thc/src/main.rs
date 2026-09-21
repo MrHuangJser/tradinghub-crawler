@@ -78,6 +78,9 @@ enum Command {
         /// 输出两接口合并后的原始 payload
         #[arg(long)]
         raw: bool,
+        /// 抓 CBOE 免费数据（VIX 家族 + SPX 链 EM），免登录
+        #[arg(long)]
+        cboe: bool,
         #[arg(short, long)]
         output: Option<String>,
     },
@@ -139,10 +142,21 @@ async fn real_main() -> Result<i32> {
         Command::Fetch {
             ticker,
             raw,
+            cboe,
             output,
         } => {
-            let _ = (ticker, raw, output);
-            todo_exit("fetch")
+            let res = if cboe {
+                crawl::run_fetch_cboe(output.as_deref()).await
+            } else {
+                crawl::run_fetch(&_cfg, &ticker, raw, output.as_deref()).await
+            };
+            match res {
+                Ok(code) => return Ok(code),
+                Err(e) => {
+                    eprintln!("❌ {e}");
+                    return Ok(e.exit_code());
+                }
+            }
         }
         Command::Plan {
             tech,
