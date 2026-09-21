@@ -1,222 +1,78 @@
-# TradingHub SPX 期权数据抓取工具
+# thc — SPX 期权驱动的 ES 盘前分析
 
-> ⚠️ **重构进行中**：本项目正在按 [`REFACTOR_PLAN.md`](./REFACTOR_PLAN.md) 重写为 Rust。
-> 新代码在 `crates/`（`cargo build`）；原 Python 实现完整保留在 [`legacy/`](./legacy/) 且仍可运行
-> （`cd legacy && python3 es_run.py`，包装脚本用法不变）。本文档描述的仍是 Python 版用法，
-> 重构完成后重写。算法依据见 [`docs/SPX期权驱动的ES盘前分析算法-逆向重建.md`](./docs/SPX期权驱动的ES盘前分析算法-逆向重建.md)。
+单一 Rust 二进制：登录 TradingHub 抓期权结构 + CBOE 免费数据 → **确定性引擎**（无 LLM）→ 中文 Markdown 盘前报告。算法依据与设计决策见 [`docs/SPX期权驱动的ES盘前分析算法-逆向重建.md`](./docs/SPX期权驱动的ES盘前分析算法-逆向重建.md)（下称"算法文档"）与 [`REFACTOR_PLAN.md`](./REFACTOR_PLAN.md)。
 
-把 `https://tradinghubs.org/OptionsDataViewer` 页面上的**全部期权数据（表格 + 图表）**
-直接抓成 JSON，免去手动截图喂给 AI 的麻烦。
-
-> 工作原理：该页面的所有数据（包括 echarts 图表的数据）都来自两个 JSON 接口，
-> 仅靠一个会话 Cookie 鉴权。本工具用账号密码自动登录拿到 Cookie，再请求这两个接口，
-> 合并后抽出指定标的（默认 SPX）输出。逆向分析详见 [`docs/ANALYSIS.md`](./docs/ANALYSIS.md)。
+> 重构自 Python 版（原实现保留在 [`legacy/`](./legacy/) 供参照，验收后移除）。
+> Rust 版引擎与 Python 版在相同输入下已做逐字段对拍（零语义差异），并按算法文档 v1.1 补齐了 parity 合成远期、真 0DTE EM、血缘审计等 Python 版缺失的功能。
 
 ## 安装
 
-```bash
-pip install -r requirements.txt   # 仅依赖 requests
-```
-
-## 配置凭据（三选一）
-
-**方式 A：配置文件（推荐）**
+从 [Releases](https://github.com/MrHuangJser/tradinghub-crawler/releases) 下载对应平台二进制（windows-x64 / macos-x64 / macos-arm64 / linux-x64-musl 静态链接），或自行构建：
 
 ```bash
-cp config.example.json config.json
-# 编辑 config.json，填入你的 TradingHub 邮箱和密码
+cargo build --release -p thc    # 或 cargo build --release（整个 workspace）
 ```
 
-**方式 B：环境变量**
+> macOS 首次运行若被 Gatekeeper 拦：`xattr -d com.apple.quarantine ./thc-macos-*`
+
+## 配置
 
 ```bash
-export TRADINGHUB_EMAIL="your_email@example.com"
-export TRADINGHUB_PASSWORD="your_password"
+cp config.example.toml config.toml   # 填入 TradingHub 凭据
 ```
 
-**方式 C：命令行参数**
-
-```bash
-python3 spx_options.py --email your_email@example.com --password 'your_password'
-```
-
-> 凭据仅用于在本机向 `tradinghubs.org/api/auth/login` 登录换取会话 Cookie，
-> 不会上传到任何第三方。`config.json` 已在 `.gitignore` 中，不会被提交。
-
-## ES 盘前确定性引擎（去 AI 化）
-
-把"SPX 期权驱动的 ES 盘前分析"算法实现成**确定性代码**（无 LLM）：
-输入 TradingHub 的 `ES_SPX` 期权结构（已含 basis 的 ES 价格空间）+ CBOE 免费数据（VIX 家族 + EM），
-输出 regime/bias/pivot/三级目标/核心防守/Squeeze/条件式文案。
-
-### 一键报告（推荐）
-
-```bash
-# 全自动：登录 TradingHub + 抓 CBOE → 直接输出 report.md
-python3 es_run.py
-
-# 指定输出路径
-python3 es_run.py -o my_report.md
-
-# 纯结构模式（不联网 CBOE，零外部依赖）
-python3 es_run.py --no-cboe
-
-# 注入技术位/精确 EM（解锁 pivot 融合 + 目标可达性）
-python3 es_run.py --em 45 --vwap 7748 --onh 7760 --onl 7735 --pdh 7770 --pdl 7720 --poc 7750
-
-# 同时保存中间 plan JSON（方便调试/重校准）
-python3 es_run.py --save-plan plan.json
-
-# 管道输出（适合脚本串联）
-python3 es_run.py --stdout | grep -A5 "摘要"
-```
-
-### 分步运行（高级用法：需要 plan JSON 做重校准）
-
-```bash
-# Step 1 — 生成盘前 plan JSON
-python3 es_plan.py --output plan.json
-
-# Step 2 — plan.json → Markdown 报告
-python3 es_report.py plan.json -o report.md
-
-# RTH 重校准（10:00 ET 重跑后，对盘前计划做 flip 偏移/资金流符号判定）
-python3 es_run.py --recalibrate plan.json
-```
-
-### 外层双击脚本
-
-| 系统 | 脚本 | 用途 |
-|---|---|---|
-| Windows | `run_report.bat` | 双击生成 `report.md` |
-| macOS | `run_report.command` | 双击生成 `report.md` |
-
-> `run_report.bat` / `run_report.command` 自动检查 Python、安装依赖、校验凭据，所有 `es_run.py` 参数可透传。
-
-> 关键：用 `ES_SPX` 标的，basis 已由 TradingHub 内含（实测 `ES_SPX.spot − SPX.spot ≈ +22.7`），无需自备 ES 行情源。
-> 缺失的 VIX 家族 / EM 由 `market_data.py` 从 CBOE 免费补上（实测 VIX/VIX1D/VIX9D/VVIX/SKEW + 0DTE straddle 全部可拿）。
-
-## 一键脚本（最省事）
-
-配好 `config.json` 后，双击即可，脚本会自动找 Python、装依赖、检查凭据：
-
-| 用途 | Windows | macOS | 说明 |
-|---|---|---|---|
-| 抓期权原始数据 | `fetch.bat` | `fetch.command` | 默认抓 SPX 拆分到 `out/` |
-| **生成盘前报告** | **`run_report.bat`** | **`run_report.command`** | 默认输出 `report.md` |
-
-```bash
-# ---- 原始数据抓取 ----
-./fetch.command                       # 默认：SPX + 拆分到 out/
-./fetch.command --ticker NDX          # 换标的
-./fetch.command --output spx.json     # 切回单文件模式
-TICKER=SPY ./fetch.command            # 用环境变量指定标的（Windows: set TICKER=SPY && fetch.bat）
-
-# ---- 盘前报告一键生成 ----
-./run_report.command                  # 默认：全自动 → report.md
-./run_report.command --no-cboe        # 纯结构模式
-./run_report.command --em 45 --vwap 7748 --onh 7760 --onl 7735  # 注入技术位
-```
-
-> 脚本只是对应 Python 脚本的便捷封装，所有 CLI 参数都能透传。
+凭据三选一（优先级 CLI > 环境变量 > 配置文件）：`config.toml` `[tradinghub]` / 环境变量 `TRADINGHUB_EMAIL`+`TRADINGHUB_PASSWORD`。`[engine]` 段的全部参数（评分权重/聚类容差/VIX1D 阈值/EM 折扣/parity 容忍度…）默认值 = 算法文档 v1.1，**调参只改配置不动代码**。
 
 ## 使用
 
 ```bash
-# 默认：抓 SPX 全量数据，pretty JSON 输出到 stdout
-python3 spx_options.py
+# 一键：抓取 → 引擎 → report.md（默认归档到 archive/当日/）
+thc run
+thc run --em 45 --vwap 7748 --onh 7760 --onl 7735   # 注入技术位/精确 EM
+thc run --offline                                     # 纯结构模式（不联网 CBOE）
+thc run --es-file es.json --spx-file spx.json --offline  # 完全离线（对拍/复盘）
+thc run --no-archive                                  # 关闭归档
 
-# 指定其他标的（NDX / SPY / QQQ / ES_SPX / NQ_NDX / TSLA / NVDA / AAPL / MSFT / GLD / IBIT）
-python3 spx_options.py --ticker NDX
+# 分步
+thc fetch --ticker ES_SPX -o es.json                 # 仅抓取（--raw 原始 payload）
+thc fetch --cboe                                      # CBOE 免费数据（免登录）
+thc plan -o plan.json                                 # 抓取+引擎 → plan JSON
+thc report plan.json -o report.md                     # plan → Markdown
 
-# 只抓某个/某些分区
-python3 spx_options.py --sections levels_summary,orderflow,gamma_ladder
-
-# 写入文件（便于直接把文件丢给 AI 助手）
-python3 spx_options.py --output spx.json
-
-# 压缩成一行 JSON（适合管道）
-python3 spx_options.py --compact | jq .
-
-# 列出当前可用的全部标的
-python3 spx_options.py --list-tickers
-
-# 输出两接口合并后的原始 payload（不做标的抽取，调试用）
-python3 spx_options.py --raw
+# 校准工具（积累制：每天归档 + 博主帖解析 + 残差对比）
+export DEEPSEEK_API_KEY=sk-...
+thc parse-blogger 博主截图.png 博主文字.md -o blogger.json   # LLM 视觉解析（需人工复核）
+thc compare archive/2026-09-21/plan.json blogger.json        # 逐位残差（≤2 点记命中）
 ```
 
-### 按页面板块拆分（推荐用于喂 AI）
+## 与 Python 版（legacy/）的差异
 
-单文件太大时，用 `--split` 按页面板块拆成多个小文件，**每个数据文件都配一份同名 `.schema.json`**（逐字段中文释义，方便 AI 感知字段含义）：
-
-```bash
-python3 spx_options.py --split out          # 拆到 out/ 目录（结构化子目录）
-python3 spx_options.py --split out --split-flat   # 扁平命名：SPX__板块__子项.json
-```
-
-产出（SPX 为例，16 个数据文件 + 16 个 schema，零数据损失）：
-
-```
-out/
-├── meta.json / meta.schema.json                 索引：标的/时间/现价 + 全部文件清单
-├── 01_levels_summary.json + .schema.json        【数据看板】关键价位概览
-├── 02_key_levels/                               【数据看板→关键价位图】+【希腊值分布页】
-│   ├── _meta / oi / gex / dex / vex / chex.json + 各自 .schema.json
-├── 03_gamma_ladder.json + .schema.json          【数据看板】前列 Gamma 行权价
-├── 04_orderflow.json + .schema.json             【数据看板】订单流看板
-├── 05_classic_chain.json + .schema.json         经典期权链摘要
-├── 06_state_greeks.json + .schema.json          状态希腊值
-└── 07_dte_exposure/                             按 0DTE/1DTE+/90天 拆分的逐档数据
-    ├── gex / dex / vex / chex.json + 各自 .schema.json
-```
-
-喂 AI 时建议：**先读 `meta.json` 找到要看的板块 → 读该板块的 `.schema.json` 了解字段 → 再读数据文件**。
-schema 里对每个字段都标注了含义/单位/页面位置，并对 `strikes`、`mini_contracts`、`raw_row` 等"位置数组"逐位说明了含义。
-
-## 输出结构（单文件模式，SPX 为例）
-
-```jsonc
-{
-  "ticker": "SPX",
-  "generated_at": "...",          // 接口生成时间（UTC）
-  "last_updated_at": "...",       // 数据最后更新时间
-  "stale": false,
-  "spot": 7727.79,                // 现价
-  "captured_at": "2026-08-11 16:00:00 EDT",  // 数据捕获时间（美东）
-  "levels_summary": { ... },      // 关键价位概览：零Gamma / 最大正负OI / 净GEX ...
-  "gamma_ladder": {               // 前列 Gamma 行权价
-    "metrics": { ... },
-    "ladder": [ { "strike", "current_value", "abs_value", "side", "distance_from_spot", "distance_percent", "lookback_values", ... } ]
-  },
-  "classic_chain": { ... },       // 经典期权链摘要
-  "state_greeks": { ... },        // 状态希腊值
-  "orderflow": { ... },           // 订单流看板（0DTE/1DTE+ 的 GEX/Vanna/Charm/CVR/DEX ...）
-  "exposure": {                   // 希腊值分布（Greeks Profile）图表数据
-    "underlyingPrice": 7727.79, "updatedAt": "...",
-    "metrics": { "oi": [...], "gex": [...], "dex": [...], "vex": [...], "chex": [...] }
-  },
-  "dte_exposure": {               // 按 DTE 模式聚合
-    "gex": { "zero": ..., "one": ..., "net": ... },
-    "dex": { ... }, "vex": { ... }, "chex": { ... }
-  }
-}
-```
-
-可用分区（`--sections`）：`levels_summary`、`gamma_ladder`、`classic_chain`、
-`state_greeks`、`orderflow`、`exposure`、`dte_exposure`。
-
-## 字段速查（详见 ANALYSIS.md）
-
-- 指标：`oi`=未平仓量, `gex`=Gamma暴露, `dex`=Delta暴露, `vex`=Vanna暴露, `chex`=Charm暴露
-- DTE 模式：`zero`=0DTE, `one`=1DTE+, `net`=90天
-- 订单流前缀：`z*`=0DTE, `o*`=1DTE+；`mlgamma`/`msgamma`=主要多/空Gamma，`mcall`/`mput`=主要看涨/看跌
+| 能力 | Python | thc (Rust) |
+|---|---|---|
+| EM 口径 | CBOE 月度 straddle √T 近似 | **当日 0DTE ATM straddle 优先**（算法文档 §5.5C；实证 √T 口径高估约 30%）|
+| Put-Call Parity 合成远期 | ✗ | ✅（§4.2，离散度审计，超限拒绝链内衍生指标）|
+| 数据血缘审计 | freshness 时效 | 四态血缘（FRESH/STALE_TODAY/PRIOR_CLOSE_OK/STALE_PRIOR_DAY）+ 链到期日门禁 + parity/背离入报告 |
+| EM 可达性折扣 | ✗ | ×0.87 只作用于目标可达性评分（止损不折扣）|
+| ES–VIX 背离 / 期限结构 | ✗ | 分开判定（§10.1）|
+| 引擎参数 | 硬编码 | 全部 `config.toml` 配置化 |
+| `--split`/.schema.json 生成、RTH `--recalibrate` | 有 | **已移除**（设计决策见 REFACTOR_PLAN §1）|
 
 ## 退出码
 
-- `0` 成功
-- `2` 凭据缺失或登录失败
-- `3` 网络/接口请求失败
-- `4` 指定标的无数据
+`0` 成功 · `2` 凭据缺失/登录失败 · `3` 网络/接口失败 · `4` 标的无数据 · `5` TradingHub 接口疑似变更（schema 漂移，用 `thc fetch --raw` 留现场）
+
+## 校准机制（进行中）
+
+每个交易日：`thc run`（自动归档 raw payload/plan/报告）→ 博主帖 `parse-blogger`（LLM 读图 → 人工复核 `reviewed:true`）→ `thc compare` 出残差表。按算法文档 §16.3 的诚实边界：<20 交易日只算冒烟校准；权重修订等 60+ 日样本。
+
+## 开发
+
+```bash
+cargo test --workspace            # 引擎合成数据测试（真实数据不入库，见 fixtures/README.md）
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+结构：`crates/thc-engine`（纯算法 lib，禁止网络/时钟依赖）+ `crates/thc`（CLI/抓取/渲染/工具）。CI：fmt/clippy/test；打 `v*` tag 出四平台 Release。
 
 ## TradingHub 产品关系
 
@@ -226,14 +82,11 @@ schema 里对每个字段都标注了含义/单位/页面位置，并对 `strike
 
 ## 注意事项
 
-- 本工具仅供 TradingHub 注册用户自动化访问自己账号可见的 OptionsDataViewer 数据使用，
-  请遵守 [TradingHub 服务条款](https://tradinghubs.org)。不要把抓到的数据再分发。
-- 登录接口无验证码；若账号开启了设备授权/二次验证，自动登录可能失败——
-  此时改用浏览器登录后复制 Cookie 的方式（可参考 `ANALYSIS.md` 自行改造）。
-- 数据为快照（页面默认 30s 刷新一次后端缓存）。每次运行获取的是当时最新的一份。
+- 本工具仅供 TradingHub 注册用户自动化访问自己账号可见的 OptionsDataViewer 数据使用，请遵守 [TradingHub 服务条款](https://tradinghubs.org)。**不要把抓到的数据再分发**（因此本仓库不提交任何真实快照，测试用合成数据）。
+- 登录接口无验证码；若账号开启了设备授权/二次验证，自动登录可能失败——此时改用浏览器登录后复制 Cookie 的方式（可参考 [`docs/ANALYSIS.md`](./docs/ANALYSIS.md) 自行改造）。
+- 数据为快照；血缘状态会写进报告头部，STALE_PRIOR_DAY 时慎用（flip 可能偏数十点）。
+- 报告是结构判断的地图，非交易信号；模型局限固定写在每份报告尾部。
 
 ## License
 
-[MIT](./LICENSE) © 2026 MrHuangJser
-
-本项目代码以 MIT 协议开源；抓取到的行情数据版权归 TradingHub 所有，不在授权范围内。
+[MIT](./LICENSE) © 2026 MrHuangJser。代码 MIT 开源；抓取到的行情数据版权归 TradingHub 所有，不在授权范围内。
