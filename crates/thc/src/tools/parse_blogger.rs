@@ -10,7 +10,8 @@ use std::path::Path;
 /// 校准数据结构（与 compare 共享）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BloggerLevels {
-    pub date: String,
+    #[serde(default)]
+    pub date: Option<String>,
     #[serde(default)]
     pub contract: Option<String>,
     /// 多空转换位：value + 候选（截图标注歧义时多候选）+ 置信度

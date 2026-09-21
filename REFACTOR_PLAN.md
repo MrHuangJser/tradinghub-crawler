@@ -3,7 +3,7 @@
 > 版本 v1.0 · 2026-09-20。本文档是拷问式访谈（Q1–Q23）的收敛结果，作为重构的唯一事实来源。
 > 算法依据：[`docs/SPX期权驱动的ES盘前分析算法-逆向重建.md`](./docs/SPX期权驱动的ES盘前分析算法-逆向重建.md)（下称"算法文档"，v1.1）。
 >
-> **执行状态（2026-09-21）**：Phase 1–5 已完成（骨架/crawler/engine 1:1 移植+v1.1 补齐/render+run+archive/校准工具）；Phase 0 调研进行中；Phase 6（删 legacy、发 v1.0.0）待用户首个实盘日验收后执行。同输入对拍：与 legacy 零语义差异。
+> **执行状态（2026-09-21）**：Phase 0–5 已完成（调研/crawler/engine 1:1 移植+v1.1 补齐/render+run+archive/校准工具）；Phase 6（删 legacy、发 v1.0.0）**待用户首个实盘日验收后执行**。同输入对拍：与 legacy 零语义差异。`deepseek-flash` 已实测存在且视觉读图验证通过（合成截图 7/7 价位正确）。
 
 ---
 
@@ -176,11 +176,16 @@ thc compare plan.json blogger.json                     # 逐位残差表
 
 ## 8. Phase 0：数据源调研（先行，不阻塞 engine）
 
-我执行 web 调研，产出 `docs/data-sources.md` 对比矩阵，字段：覆盖数据 / 价格 / 延迟 / API 形态 / ToS 风险（合法免费 / 灰色）。
+**✅ 已完成（2026-09-21）**，报告：[`docs/data-sources.md`](./docs/data-sources.md)（16 个源、一手来源+实测标注）。核心结论：
+
+1. **TradingHub 可降级不可全替**：期权链原料（OI/vol/bid/ask/IV/greeks）免费可得，GEX/CVR/straddle 可本地重算；**免费拿不到的只有逐笔成交方向（订单流）**——TradingHub 保留为"订单流增强插件 + 交叉校验"。
+2. **⚠️ CBOE CDN 被标灰**：官网条款明文禁自动抓取（"STRICTLY PROHIBITED … AUTO-EXTRACTION"）。现有 `cboe.rs`（继承自 Python 版）每日一次低频使用属灰色地带；**合法替代 = Tradier 免费 Lite**（$0 月费含 API，实时全字段链 + ORATS greeks，需注册 token）——**待用户决策**：接受低频灰色使用，还是切 Tradier。
+3. **免费同步 ES 盘前报价不存在**（悬念证实）：但 08:30 ET 时 SPX 现货静态（=昨收），"双边同步"退化为"ES 单边新鲜度"——**Yahoo `ES=F`**（免鉴权 ~15min 延迟，Globex 夜盘更新）可支撑 basis=ES(08:15)−SPX(昨收) 口径，误差 <0.3%。真·双边实时最低 $5.05/月。
+4. **后续增强清单**（v1.0 后）：Yahoo ES=F 补 ES 报价/ONH/ONL/PDH/PDL/昨收（自动注入 technicals，免手填）；Massive 免费层拿结算价；FOMC/CPI 日历官方源；OPEX 第三周五本地推算。
 
 **必查清单**：CBOE 延迟链（已在文档 §21.3 实战验证）、Yahoo Finance 期权链、Tradier、Polygon/Massive 免费层、IBKR、Databento、stooq、CME 延迟报价、TradingView/英为财情（灰色，仅记录）。引擎硬需求字段：逐 strike OI/成交量/bid/ask/IV、0DTE 区分、VIX 家族、ES 与 SPX 报价、事件日历。
 
-**已知悬念**：免费的"同步 ES 盘前报价"大概率不存在（CME 实时报价是付费品）→ 若证实，TradingHub 的 `ES_SPX`（内嵌 basis）仍是主源，basis 同步校验降级为"未知同步状态"标注而非硬门禁。调研结论回填本节。
+**已知悬念**：免费的"同步 ES 盘前报价"大概率不存在（CME 实时报价是付费品）→ 若证实，TradingHub 的 `ES_SPX`（内嵌 basis）仍是主源，basis 同步校验降级为"未知同步状态"标注而非硬门禁。**已证实并按上述口径处理。**
 
 ---
 
